@@ -132,3 +132,5 @@ dmypy.json
 # Experiments data
 experiments/
 logs/
+.data/
+.vector_cache/

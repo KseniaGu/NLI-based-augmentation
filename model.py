@@ -19,12 +19,16 @@ class AlignMatr(nn.Module):
 class AlignVector(nn.Module):
     '''
     A vector representing important parts of sent
-        for the second sequence in a pair
+        for the second sentence in a pair
+    Args:
+        sent: a sequence, which importance is counted
+        e: an alignment matrix (AlignMatr result)
+        transp_need: True, when sent is premise
     '''
     def __init__(self):
         super(AlignVector, self).__init__()
 
-    def permute_dim(self, sent, new_dim_size):
+    def _permute_dim(self, sent, new_dim_size):
         sent = sent.unsqueeze(3)
         sent = sent.repeat(1, 1, 1, new_dim_size)
         return sent.permute(0, 3, 1, 2)
@@ -35,13 +39,21 @@ class AlignVector(nn.Module):
         e = torch.exp(e - e.max(2, keepdim=True)[0])
         e_sum = torch.sum(e, 2, keepdim=True)
         es = e / e_sum
-        new_sent = self.permute_dim(sent, es.size()[1])
+        new_sent = self._permute_dim(sent, es.size()[1])
         es_sent = es.unsqueeze(3) * new_sent
         sent_sum = torch.sum(es_sent, 2)
         return sent_sum
 
 
 class Model(nn.Module):
+    '''
+    Implementation of the ESIM-based model
+    Args:
+        vocab: vocabulary, built from training dataset
+        bidirectional: True if BiLSTM is used
+        agr_type: "lstm" for aggregating word vectors via lstm last state
+                  "sum" for aggregating via summarizing word vectors
+    '''
     def __init__(self, vocab, bidirectional=True, agr_type="lstm"):
         super(Model, self).__init__()
         lstm_dirs_count = 2 if bidirectional else 1
@@ -55,11 +67,16 @@ class Model(nn.Module):
         self.projection2 = nn.Linear(lstm_dirs_count * cfg.model.align_vector_len * cfg.model.hid_dim, cfg.model.hid_dim)
         self.projection3 = nn.Linear(lstm_dirs_count * 2 * cfg.model.hid_dim, lstm_dirs_count * 2 * cfg.model.hid_dim)
         # self.batch_norm = nn.BatchNorm1d(lstm_dirs_count*2*cfg.model.hid_dim)
-        self.projection_out = nn.Linear(lstm_dirs_count * 2 * cfg.model.hid_dim, cfg.dataset.nrof_classes)
+        self.projection_out = nn.Linear(lstm_dirs_count * 2 * cfg.model.hid_dim, cfg.train.nrof_classes)
         self.sftmx = nn.Softmax()
         self.agr_type = agr_type
 
     def forward(self, batch):
+        '''
+        Args:
+            batch: A batch of varaible length sequences of word indices
+                representing premise and hypothesis
+        '''
         emb_prem = self.embedding(batch.premise)
         emb_hyp = self.embedding(batch.hypothesis)
         proj_prem = self.relu(self.projection1(emb_prem))

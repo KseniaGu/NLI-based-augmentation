@@ -4,46 +4,60 @@ import torch.optim as Opt
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import datetime
 import time
+import os
+import pickle
+import pandas as pd
+from io import StringIO
 
-from  model import Model
+from model import Model
 from data_loader import DataPrep, EvalDataPrep
 from config import cfg
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class Train():
+    '''
+    A model training class.
+    '''
     def __init__(self):
-        print("Training process started: {}".format(datetime.datetime.now()))
-        self.dataset = DataPrep()
-        self.eval_dataset = EvalDataPrep(cfg.eval.datset)
+        print("Process started: {}".format(datetime.datetime.now()))
+        self.dataset = DataPrep(cfg, device)
+        if cfg.exp.cross_test:
+            self.eval_dataset = EvalDataPrep(cfg, self.dataset.text, self.dataset.labels, device)
         self.model = Model(self.dataset.get_vocab())
-        print("Parameters count:", sum([param.nelement() for param in self.model.parameters()]))
+        print("Parameters count:", sum([param.nelement() for param in self.model.parameters() if param.requires_grad]))
         self.model.to(device)
 
         self.optim = Opt.RMSprop(self.model.parameters(), lr=cfg.train.lr, alpha=0.9)  # , weight_decay = 4e-6)
-        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optim, 5, gamma = 0.1)
+        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optim, 5, gamma = 0.1_cross_test)
         self.scheduler = ReduceLROnPlateau(self.optim, patience=cfg.train.patience)
         self.crit = nn.CrossEntropyLoss(reduction='sum')
         self.nrof_epochs = cfg.train.nrof_epochs
 
-        self.patience_countr = 0
+        #self.patience_countr = 0
         self.global_step = 0
         self.cur_epoch = 0
+
 
         print("Preparation's done: {}".format(datetime.datetime.now()))
 
     def save_model(self, epoch):
+        save_path = os.path.join(cfg.exp_path, cfg.train.dataset + '_train', cfg.exp.ckpt_dir)
+
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+
         torch.save({"epoch": epoch,
                     "model": self.model.state_dict(),
-                    "best_accuracy": self.learn_data["Best acc"],
                     "optimizer": self.optim.state_dict(),
                     "scheduler": self.scheduler.state_dict()},
-                   cfg.exp.ckpt_path)
+                   save_path)
 
         print("Model saved...")
 
     def load_model(self):
-        ckpt = torch.load(cfg.exp.ckpt_path)
+        load_path = os.path.join(cfg.exp_path, cfg.train.dataset + '_train', cfg.exp.ckpt_dir)
+        ckpt = torch.load(load_path, map_location = device)
         self.cur_epoch = ckpt["epoch"] + 1
         self.model.load_state_dict(ckpt["model"])
         self.optim.load_state_dict(ckpt["optimizer"])
@@ -52,11 +66,13 @@ class Train():
         print("Model loaded...")
 
     def train_epoch(self, epoch):
+        '''
+        Training with L1 regularization applied to FF layers
+        '''
         self.model.train()
         self.dataset.tr_iter.init_epoch()
         nrof_cor_predicts, nrof_predicts, cur_loss = 0, 0, 0
 
-        # shuffle?
         for batch_idx, batch in enumerate(self.dataset.tr_iter):
             self.optim.zero_grad()
             try:
@@ -128,36 +144,60 @@ class Train():
     def evaluate(self):
         if cfg.exp.ckpt_load:
             self.load_model()
-
         self.model.eval()
-        vocab = self.dataset.get_vocab()
-        l_map = {"contradiction": 0, "neutral": 1, "entailment": 2}
+
+        data_iter = self.eval_dataset.dev_iter
+        data_iter.init_epoch()
         nrof_cor_predicts, nrof_predicts, cur_loss = 0, 0, 0
 
         with torch.no_grad():
-            for i, t in enumerate(self.eval_dataset.test):
-                prem, hyp = t.premise, t.hypothesis
-                label = l_map[t.label]
-                prem_emb = [torch.tensor(vocab.vectors[vocab.stoi[token]], device=device) for token in prem]
-                hyp_emb = [torch.tensor(vocab.vectors[vocab.stoi[token]], device=device) for token in hyp]
-                hyp_emb, prem_emb = torch.stack(hyp_emb), torch.stack(prem_emb)
+            for batch_idx, batch in enumerate(data_iter):
+                predict = self.model(batch)
+                loss = self.crit(predict, batch.label)
 
-                predict = self.model((torch.unsqueeze(prem_emb, 0), torch.unsqueeze(hyp_emb, 0)))
-                tensor_label = torch.unsqueeze(torch.tensor(label, device=device), 0)
-                loss = self.crit(predict, tensor_label)
-
-                nrof_cor_predicts += (torch.max(predict, 1)[1].view(1) == tensor_label).sum().item()
-                nrof_predicts += 1
+                nrof_cor_predicts += (torch.max(predict, 1)[1].view(batch.label.size()) == batch.label).sum().item()
+                nrof_predicts += batch.batch_size
                 cur_loss += loss.item()
 
-                if i % 100 == 0:
-                    print(i)
+                if batch_idx % 10 == 0:
+                    print(batch_idx)
 
-            val_loss = cur_loss / nrof_predicts
-            val_acc = 100. * nrof_cor_predicts / nrof_predicts
-            return val_loss, val_acc
+        val_loss = cur_loss / nrof_predicts
+        val_acc = 100. * nrof_cor_predicts / nrof_predicts
+
+        data_dict = {"results": {"val loss": val_loss, "val acc": val_acc},
+                     "params": {"train dataset": cfg.train.dataset,
+                               "eval dataset": cfg.eval.dataset,
+                                "model": "base"}}
+
+        path_to_pkl = os.path.join(cfg.exp_path, 'results', 'cross_data_' + cfg.train.dataset + '_' + cfg.eval.dataset)
+        #path_to_pkl = cfg.exp_path + "/cross_data_" + cfg.train.dataset + '_' + cfg.eval.dataset
+        #print(path_to_pkl)
+
+        with open(path_to_pkl, "wb") as f:
+            pickle.dump(data_dict, f)
+
+        return val_loss, val_acc
 
 
-Tr_model = Train()
-Tr_model.evaluate()
-# Tr_model.train()
+def check_results():
+    sets = ["snli", "mnli", "sick"]
+    res =  dict(zip(["snli", "mnli", "sick"],[[],[],[]]))
+    for p1 in sets[:-1]:
+        for p2 in sets:
+            path = os.path.join(cfg.exp_path, p1 + '_train', 'results', 'cross_data_' + p2)
+            with open(path, "rb") as f:
+                data = pickle.load(f)
+                res[data['params']['eval dataset']].append(data['results']['val acc'])
+
+    data = pd.DataFrame(res, index=sets[:-1])
+    print(data)
+
+
+
+
+
+#Tr_model = Train()
+#Tr_model.evaluate()
+
+check_results()
