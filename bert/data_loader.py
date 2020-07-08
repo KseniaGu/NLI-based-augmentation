@@ -55,7 +55,7 @@ class DataPrep:
 
     def _get_tokens(self, sentences, labels):
         '''
-        Numericalization and tokenization?
+        Tokenization and numericalization
         Args:
             sentences (list of tuples): tuples of sentences (premise, hypothesis)
             labels (list): numericalized labels

@@ -7,7 +7,7 @@ import random
 #nltk.download('averaged_perceptron_tagger')
 #nltk.download('stopwords')
 stop_words = set(stopwords.words('english'))
-# manually as certain simbols are not presented in lib's tool
+# puncts set manually because certain simbols are not presented in lib's tool
 puncts = ('.', ',','..','...','!','?',' ','-',':','—','(',')',"'")
 
 

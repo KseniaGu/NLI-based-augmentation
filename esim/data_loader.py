@@ -20,10 +20,10 @@ class DataPrep():
         self.new_words = []
 
         if cfg.train.dataset == 'mnli':
-            self.train, self.dev, self.test = datasets.MultiNLI.splits(self.text, self.labels)
+            self.train, self.dev, self.test = datasets.MultiNLI.splits(self.text, self.labels, root=cfg.dataset.nli_root_dir)
 
         if cfg.train.dataset == 'snli':
-            self.train, self.dev, self.test = datasets.SNLI.splits(self.text, self.labels)
+            self.train, self.dev, self.test = datasets.SNLI.splits(self.text, self.labels, root=cfg.dataset.nli_root_dir)
 
         if cfg.train.dataset == 'mnli_aug_sampling':
             self.train, self.dev, self.test = datasets.MultiNLI.splits(self.text, self.labels)
@@ -38,7 +38,9 @@ class DataPrep():
                         else:
                             print('Not list! In element:', i)
 
-        self.text.build_vocab(self.train, self.dev, self.test, vectors=GloVe(name="840B", dim=300))
+        #self.text.build_vocab(self.train, self.dev, self.test, vectors=GloVe(name="840B", dim=300), vectors_cache=cfg.dataset.vectors_cache)
+        self.text.build_vocab(self.train, self.dev, self.test, vectors='glove.840B.300d',
+                              vectors_cache=cfg.dataset.vectors_cache)
         self.labels.build_vocab(self.train)
 
         if not cfg.exp.name == 'cross_test':
@@ -65,10 +67,10 @@ class EvalDataPrep():
     '''
     def __init__(self, cfg, text_field, label_field, device):
         if cfg.eval.dataset == 'mnli':
-            self.train, self.dev, self.test = datasets.MultiNLI.splits(text_field, label_field)
+            self.train, self.dev, self.test = datasets.MultiNLI.splits(text_field, label_field, root=cfg.dataset.nli_root_dir)
 
         if cfg.eval.dataset == 'snli':
-            self.train, self.dev, self.test = datasets.SNLI.splits(text_field, label_field)
+            self.train, self.dev, self.test = datasets.SNLI.splits(text_field, label_field, root=cfg.dataset.nli_root_dir)
 
         if cfg.eval.dataset == 'sick':
             self.train, self.dev, self.test = data.TabularDataset.splits(
@@ -139,8 +141,8 @@ class EvalDataPrep():
 
 if __name__ == '__main__':
     DP = DataPrep(cfg, device)
-    EDP = EvalDataPrep(cfg, DP.text, DP.labels, device)
-    EDP.show_statistics()
+    #EDP = EvalDataPrep(cfg, DP.text, DP.labels, device)
+    #EDP.show_statistics()
 
 
 

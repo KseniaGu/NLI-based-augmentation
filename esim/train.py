@@ -231,7 +231,7 @@ def check_results():
     res = dict(zip(sets, [[] for _ in range(len(sets))]))
     for p1 in tr_sets:
         for p2 in sets:
-            path = os.path.join(cfg.exp_path, p1 + '_train', 'results', 'cross_data_' + p2)
+            path = os.path.join(cfg.exp.path, p1 + '_train', 'results', 'cross_data_' + p2)
             with open(path, "rb") as f:
                 data = pickle.load(f)
                 res[data['params']['eval dataset']].append(data['results']['val acc'])
@@ -244,6 +244,7 @@ def check_results():
 
 
 #Tr_model = Train()
+#Tr_model.train()
 #Tr_model.evaluate()
 
 check_results()
